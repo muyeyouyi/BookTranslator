@@ -1,0 +1,10 @@
+openai
+pdfplumber
+simplejson
+requests
+PyYAML
+pillow
+reportlab
+pandas
+loguru
+python-docx>=1.1.2

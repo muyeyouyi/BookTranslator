@@ -1,0 +1,21 @@
+# 可复制此文件，使用 --config 指定；相对路径以配置文件目录为基准。
+llm:
+  model: your-model-name
+  base_url: https://your-provider.example/v1
+  api_key_env: OPENAI_API_KEY
+  # api_key: ""  # 兼容直接填写；环境变量优先
+
+common:
+  book: test/test.pdf
+  input_format: pdf
+  output_format: markdown  # markdown/md、pdf、word/docx
+  # pdf_font: /path/to/chinese-font.ttf  # 可选，PDF 中文字体
+  output_dir: output
+  log_dir: log
+  chunk_size: 3000
+  max_output_tokens: 4096
+  timeout: 120
+  max_retries: 3
+  concurrency: 3
+  start_page: 1
+  # end_page: 10
