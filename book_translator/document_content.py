@@ -5,7 +5,7 @@ from urllib.parse import unquote
 PAGE_WIDTH, PAGE_HEIGHT, MARGIN = 612, 792, 54  # Letter，单位 pt
 CONTENT_WIDTH = PAGE_WIDTH - 2 * MARGIN
 CONTENT_HEIGHT = PAGE_HEIGHT - 2 * MARGIN
-SCAN_NOTICE = "本页没有可提取文字，已保留页面图片；未执行 OCR。"
+SCAN_NOTICE = "本页没有可提取文字，已保留图像内容；未执行 OCR。"
 
 
 def image_path(output_path, relative_path):

@@ -30,7 +30,7 @@ class PDFReader:
                     blocks = self._extract_page(page, assets_dir, index + 1)
                     has_text = bool(page.chars)
                     if not has_text:
-                        logger.warning("第 {} 页没有可提取文字，可能为扫描页；保留页面图片，不执行 OCR", index + 1)
+                        logger.warning("第 {} 页没有可提取文字；保留图像内容，不执行 OCR", index + 1)
                     logger.info("第 {} 页提取完成：{} 个内容块", index + 1, len(blocks))
                     yield PageContent(index + 1, blocks, has_text)
                 finally:
@@ -68,21 +68,23 @@ class PDFReader:
             last_bottom, last_size = line["bottom"], size
         flush()
 
-        if not page.chars:
+        # 没有文字不等于整页扫描图；优先提取实际图片区域。
+        seen = set()
+        for image in page.images:
+            box = (max(page.bbox[0], image["x0"]), max(page.bbox[1], image["top"]),
+                   min(page.bbox[2], image["x1"]), min(page.bbox[3], image["bottom"]))
+            if box in seen or box[2] <= box[0] or box[3] <= box[1]:
+                continue
+            seen.add(box)
+            name = f"page_{number:04d}_image_{len(seen):03d}.png"
+            page.crop(box).to_image(resolution=150).original.save(assets_dir / name)
+            elements.append((box[1], box[0], self._image_block(assets_dir, name)))
+        if not page.chars and not seen:
+            # 例如只有矢量图的页面，无法获取独立图片时才保留整页预览。
             name = f"page_{number:04d}.png"
             page.to_image(resolution=150).original.save(assets_dir / name)
             elements.append((0, 0, self._image_block(assets_dir, name)))
-        else:
-            seen = set()
-            for image in page.images:
-                box = (max(page.bbox[0], image["x0"]), max(page.bbox[1], image["top"]),
-                       min(page.bbox[2], image["x1"]), min(page.bbox[3], image["bottom"]))
-                if box in seen or box[2] <= box[0] or box[3] <= box[1]:
-                    continue
-                seen.add(box)
-                name = f"page_{number:04d}_image_{len(seen):03d}.png"
-                page.crop(box).to_image(resolution=150).original.save(assets_dir / name)
-                elements.append((box[1], box[0], self._image_block(assets_dir, name)))
+            logger.info("第 {} 页没有可导出的图片对象，使用整页预览", number)
         return [item[2] for item in sorted(elements, key=lambda item: (item[0], item[1]))]
 
     @staticmethod

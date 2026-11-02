@@ -36,7 +36,7 @@ class MarkdownWriter:
             else:
                 rendered.append(block.text)
         content = "\n\n".join(rendered)
-        notice = "\n> 本页没有可提取文字，已保留页面图片；未执行 OCR。\n" if not page.has_text else ""
+        notice = "\n> 本页没有可提取文字，已保留图像内容；未执行 OCR。\n" if not page.has_text else ""
         section = f"\n<!-- 原 PDF 第 {page.number} 页 -->\n{notice}\n{content}\n"
         if not self.started:
             atomic_write(self.partial_path, self.header + section)
