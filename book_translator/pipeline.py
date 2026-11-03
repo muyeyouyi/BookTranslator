@@ -9,6 +9,7 @@ from book_translator.checkpoint import CheckpointStore
 from book_translator.output import create_writer
 from book_translator.pdf_reader import PDFReader
 from book_translator.translation import SYSTEM_PROMPT, TranslationService
+from book_translator.table_translation import TableTranslationService
 
 
 class BookTranslator:
@@ -61,22 +62,16 @@ class BookTranslator:
             for block in page.blocks:
                 if block.kind == "text":
                     texts.append(block.text)
-                elif block.kind == "table":
-                    texts.extend(cell for row in block.rows for cell in row if cell and not self._numeric(cell))
         translated = dict(zip(texts, service.translate_many(texts))) if service else {}
+        table_service = TableTranslationService(service) if service else None
         for page in pages:
             blocks = []
             for block in page.blocks:
                 if block.kind == "image":
                     blocks.append(block)
                 elif block.kind == "table":
-                    rows = [[translated.get(cell, cell) if cell and not self._numeric(cell) else cell
-                             for cell in row] for row in block.rows]
+                    rows = table_service.translate(block.rows) if table_service else block.rows
                     blocks.append(replace(block, rows=rows))
                 else:
                     blocks.append(replace(block, text=translated.get(block.text, block.text)))
             yield replace(page, blocks=blocks)
-
-    @staticmethod
-    def _numeric(text):
-        return all(char.isdigit() or char.isspace() or char in ".,+-%％−()/" for char in text)

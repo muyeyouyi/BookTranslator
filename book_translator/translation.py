@@ -19,6 +19,10 @@ class TranslationError(RuntimeError):
     """可以安全记录到日志的模型调用错误。"""
 
 
+class ContextLengthError(TranslationError):
+    """接口明确报告输入超过上下文或请求大小限制。"""
+
+
 def split_text(text, limit):
     """优先在段落、句末或空白处切分；无空白的超长文本也不会超出上限。"""
     remaining = text.strip()
@@ -118,31 +122,52 @@ class TranslationService:
                 self._inflight.pop(chunk, None)
 
     def _request(self, text):
+        try:
+            choice = self._completion(text, SYSTEM_PROMPT)
+        except ContextLengthError:
+            if len(text) < 2:
+                raise
+            logger.warning("正文超过接口上下文限制，拆小当前分段后重试")
+            middle = len(text) // 2
+            return self.translate(text[:middle]) + "\n\n" + self.translate(text[middle:])
+        if choice.finish_reason == "length":
+            if len(text) < 2:
+                raise TranslationError("单字符译文仍被截断，请增大 max_output_tokens")
+            logger.warning("模型输出被截断，拆小当前分段后重新翻译")
+            middle = len(text) // 2
+            return self.translate(text[:middle]) + "\n\n" + self.translate(text[middle:])
+        if choice.finish_reason != "stop" or not choice.message.content or not choice.message.content.strip():
+            raise TranslationError("模型没有返回完整有效的译文，请检查模型兼容性")
+        return choice.message.content.strip()
+
+    def _completion(self, text, system_prompt):
+        """正文和表格共用连接、重试和 token 日志，内容解析交给调用方。"""
         for attempt in range(self.config.max_retries + 1):
             try:
                 response = self.client.chat.completions.create(
                     model=self.config.model,
-                    messages=[{"role": "system", "content": SYSTEM_PROMPT},
+                    messages=[{"role": "system", "content": system_prompt},
                               {"role": "user", "content": text}],
                     max_tokens=self.config.max_output_tokens,
                 )
                 if not response.choices:
                     raise TranslationError("模型未返回候选译文")
                 choice = response.choices[0]
-                if choice.finish_reason == "length":
-                    if len(text) < 2:
-                        raise TranslationError("单字符译文仍被截断，请增大 max_output_tokens")
-                    logger.warning("模型输出被截断，拆小当前分段后重新翻译")
-                    middle = len(text) // 2
-                    return self.translate(text[:middle]) + "\n\n" + self.translate(text[middle:])
-                if choice.finish_reason != "stop" or not choice.message.content or not choice.message.content.strip():
-                    raise TranslationError("模型没有返回完整有效的译文，请检查模型兼容性")
                 usage = response.usage
                 logger.info("分段翻译完成：输入 tokens {}，输出 tokens {}",
                             usage.prompt_tokens if usage else "未知", usage.completion_tokens if usage else "未知")
-                return choice.message.content.strip()
+                return choice
             except (APIConnectionError, APITimeoutError, APIStatusError) as exc:
                 status = getattr(exc, "status_code", None)
+                body = getattr(exc, "body", None)
+                if isinstance(body, dict) and isinstance(body.get("error"), dict):
+                    body = body["error"]
+                code = getattr(exc, "code", None) or (body.get("code") if isinstance(body, dict) else None)
+                if status == 413 or (status in {400, 422} and code in {
+                    "context_length_exceeded", "max_context_length_exceeded", "context_window_exceeded",
+                    "input_too_long", "request_too_large", "token_limit_exceeded",
+                }):
+                    raise ContextLengthError("输入超过模型接口的上下文或请求大小限制") from None
                 retryable = status is None or status in {408, 409, 429} or status >= 500
                 if not retryable or attempt == self.config.max_retries:
                     # 不传播 SDK 异常正文（可能含请求或服务商响应）。
